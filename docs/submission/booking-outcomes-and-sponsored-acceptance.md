@@ -14,7 +14,11 @@ The authenticated room lists voluntary attendance confirmations from members aft
 
 ## Portaldot V3 acceptance still required
 
-## Prepared Protected V2 sponsorship
+## Protected V2 fee payment
+
+The public checkout also supports a browser-selected native fee payer without an unattended operator. See [reviewer self-funded V2](reviewer-self-funded-v2.md) for the available wallet paths, funding requirements and recovery steps. This route is enabled separately from automatic sponsorship.
+
+## Prepared automatic Protected V2 sponsorship
 
 Protected V2 now has its own relay planner, acceptance-file verifier and checkout integration. Its operator instance is isolated from the V1 relay. The server reconstructs exact calls from the locked roster and finalized contract state. Browser-provided amounts, recipients or arbitrary calls are not accepted.
 
@@ -48,7 +52,7 @@ Copy `server/sponsorship/protected-policy.example.json` to private operator conf
 
 The V2 policy must declare `version: protected-v2` and match the configured Protected V2 contract. The acceptance file uses schema `pactpay-native-relay-acceptance-v2`; its executions must provide finalized evidence for publish, payment, capture, payout, refund and cancel. The server checks compact ownership, signer, decoded target calls and finalized cost accounting. No environment flag bypasses missing acceptance evidence.
 
-At the user's request, no new automated scenario or live V3 transaction was run for this preparation. Only TypeScript and production build checks were performed. V2 sponsorship remains unavailable until operator setup and V3 acceptance are completed. No additional contract deployment is needed for this path.
+At the user's request, no new automated scenario or live V3 transaction was run for this preparation. Only TypeScript and production build checks were performed. Automatic V2 sponsorship remains unavailable until operator setup and V3 acceptance are completed. Browser-authorized fee payment is available independently. No additional contract deployment is needed for this path.
 
 ## Deferred Portaldot V3 acceptance
 

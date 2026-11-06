@@ -1,3 +1,4 @@
+import {manualProtectedPlan} from './sponsorship/manual-protected.js';
 import {eoaVerification} from './payments/eoa-verification.js';
 import {nativeLogin} from './auth/native-login.js';
 import {protectedRooms} from './payments/protected-rooms.js';
@@ -179,6 +180,7 @@ export function createApp(db: Database, config: AppConfig) {
             sponsoring: !!config.compactRelay?.available,
             protectedSponsoring: !!config.protectedRelay?.available,
             protectedSponsorshipPrepared: true,
+            protectedManualSponsoring: !!config.protectedDeployment,
             batching: !!config.compactRelay?.available,
             protectedContract: !!config.protectedDeployment,
             ocr: !!config.ocr,
@@ -354,10 +356,10 @@ export function createApp(db: Database, config: AppConfig) {
         if(method==='POST')return send(await eoaCheck.verify(wallet,p));
       }
       if(path==='/api/account/atomic'){
-        if(method==='GET')return send({account:await atomicAccounts.get(uid),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
-        if(method==='POST')return send({account:await atomicAccounts.register(uid,p.accountAddress),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
+        if(method==='GET')return send({account:await atomicAccounts.get(uid),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available||config.protectedDeployment)});
+        if(method==='POST')return send({account:await atomicAccounts.register(uid,p.accountAddress),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available||config.protectedDeployment)});
       }
-      if(path==='/api/account/atomic/activate'&&method==='POST')return send({account:await atomicAccounts.activate(uid,p.enabled),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
+      if(path==='/api/account/atomic/activate'&&method==='POST')return send({account:await atomicAccounts.activate(uid,p.enabled),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available||config.protectedDeployment)});
       if(path==='/api/sponsorship/budgets'){
         const budgets=new MerchantBudgets(db,!!(config.compactRelay?.available||config.protectedRelay?.available));
         if(method==='GET')return send({budgets:await budgets.list(uid)});
@@ -366,6 +368,11 @@ export function createApp(db: Database, config: AppConfig) {
       const budgetRoute=path.match(/^\/api\/sponsorship\/budgets\/([^/]+)$/);
       if(budgetRoute&&method==='PATCH')return send({budget:await new MerchantBudgets(db,!!(config.compactRelay?.available||config.protectedRelay?.available)).save(uid,budgetRoute[1],p)});
 
+      const manualFeePlan=path.match(/^\/api\/rooms\/([^/]+)\/protected-fee-plan$/);
+      if(manualFeePlan&&method==='POST'){
+        requireThat(config.protectedDeployment,'protected_deployment_unavailable',undefined,503);
+        return send(await manualProtectedPlan(db,config.protectedDeployment,uid,manualFeePlan[1],p));
+      }
       const sponsoredRoute=path.match(/^\/api\/rooms\/([^/]+)\/(sponsorship|sponsored-intents)(?:\/([^/]+))?(?:\/(submit|cancel))?$/);
       if(sponsoredRoute){const [,roomId,kind,intentId,operation]=sponsoredRoute;const sponsoredRoom=await rooms.get(uid,roomId);const relay=sponsoredRoom.settlementVersion==='protected-v2'?config.protectedRelay:config.compactRelay;
         if(kind==='sponsorship'&&method==='GET')return send(relay?await relay.status(uid,roomId):{available:false,prepared:true,reason:'Fee coverage is prepared and waiting to be enabled.'});

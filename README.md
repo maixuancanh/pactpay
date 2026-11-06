@@ -106,7 +106,7 @@ Creating a room, joining and accepting a share do not transfer tokens. Locking a
 
 ### Track each contribution and outcome
 
-Open the workshop preview on the bookings page to try full funding, incomplete funding and a complaint. The sample receipts link to recorded native evidence where available. Published Protected V2 rooms have a wallet-free receipt for the finalized financial record and a separate private attendance section. Protected V2 fee coverage now has a prepared server planner and checkout path for exact-share payment and pooled-credit refund. It remains disabled pending operator configuration and V3 acceptance; preparation does not require a new contract deployment. See the [booking outcomes and sponsored acceptance guide](docs/submission/booking-outcomes-and-sponsored-acceptance.md).
+Open the workshop preview on the bookings page to try full funding, incomplete funding and a complaint. The sample receipts link to recorded native evidence where available. Published Protected V2 rooms have a wallet-free receipt for the finalized financial record and a separate private attendance section. Protected V2 supports [wallet-paid review and checkout](docs/submission/reviewer-self-funded-v2.md), including an optional registered compact account with a separately chosen native fee payer. The unattended relay remains separately configured. Reviewers need both native tPOT for costs and demo dUSD for contributions; the existing demo token is owner-minted. See the [booking outcomes and sponsored acceptance guide](docs/submission/booking-outcomes-and-sponsored-acceptance.md).
 
 - Review the member's exact share, current state and next action.
 - Approve the required allowance and contribute the fixed share.
