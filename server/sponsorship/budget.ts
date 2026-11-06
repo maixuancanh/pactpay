@@ -54,7 +54,7 @@ export class SponsorBudget {
       );
       // This implementation only funds the actor itself or the quote escrow; no arbitrary recipient.
       const quote = (
-        await tx.query("SELECT escrow FROM quote_bindings WHERE room_id=$1", [
+        await tx.query("SELECT escrow FROM quote_bindings WHERE room_id=$1 UNION ALL SELECT escrow FROM protected_room_bindings WHERE room_id=$1 LIMIT 1", [
           a.roomId,
         ])
       ).rows[0];

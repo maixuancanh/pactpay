@@ -6,6 +6,7 @@ import { requireThat } from '../lib.js';
 import { V3_GENESIS } from '../indexer/native-reader.js';
 import { compactRuntime } from '../auth/atomic-account.js';
 import { relayPlannerAbi, type RelaySnapshot } from './compact-planner.js';
+import {protectedRelayAbi, type ProtectedRelayBooking, type ProtectedRelaySnapshot} from './protected-planner.js';
 import { relayAuthorization, relayExecution, decodeRelayExecution, type SignedRelayRequest } from './compact-codec.js';
 import type { RelayDriver, RelayPrepared, RelayJournal } from './compact-relay.js';
 const ownerAbi = parseAbi(['function owner() view returns(address)']);
@@ -99,6 +100,23 @@ export class NativeRelayDriver implements RelayDriver {
         return { nonce, relayer: c.relayer, payerNative: this.signer.address, spendable: String(free > held ? free - held : 0n) };
     }
     async readSnapshot(account: Address, escrow: Address, quoteId: Hex): Promise<RelaySnapshot> { const c = await this.context(); const [q, share, contribution, credit] = await Promise.all([this.read(c.at, escrow, relayPlannerAbi, 'getQuote', [quoteId]), this.read(c.at, escrow, relayPlannerAbi, 'shares', [quoteId, account]), this.read(c.at, escrow, relayPlannerAbi, 'contributions', [quoteId, account]), this.read(c.at, escrow, relayPlannerAbi, 'credits', [quoteId, account])]); const [quote, state, held, members] = q as any; return { quote, state: Number(state), held, members, share: share as bigint, contribution: contribution as bigint, credit: credit as bigint, timestamp: BigInt(Math.floor(c.timestamp / 1000)) }; }
+    async readProtectedSnapshot(account: Address, escrow: Address, quoteId?: Hex): Promise<ProtectedRelaySnapshot> {
+        const context = await this.context();
+        const [token, merchantNonce, credit] = await Promise.all([
+            this.read(context.at, escrow, protectedRelayAbi, 'token', []),
+            this.read(context.at, escrow, protectedRelayAbi, 'merchantNonce', [account]),
+            this.read(context.at, escrow, protectedRelayAbi, 'credits', [account]),
+        ]);
+        const booking = quoteId
+            ? await this.read(context.at, escrow, protectedRelayAbi, 'booking', [quoteId]) as ProtectedRelayBooking
+            : undefined;
+        const positions = booking ? await Promise.all(booking.members.map(async member => {
+            const position = await this.read(context.at, escrow, protectedRelayAbi, 'positions', [quoteId, member]) as readonly [bigint, bigint, bigint, boolean, boolean];
+            return {account: member, share: position[0], paid: position[1], disputed: position[3], settled: position[4]};
+        })) : [];
+        return {timestamp: BigInt(Math.floor(context.timestamp / 1000)), token: token as Address,
+            merchantNonce: merchantNonce as bigint, credit: credit as bigint, booking, positions};
+    }
     async prepare(r: SignedRelayRequest): Promise<RelayPrepared> {
         const identity = await this.quote({ account: r.account, owner: r.owner });
         requireThat(r.chainId === 420420777 && identity.nonce === r.nonce && identity.relayer === r.relayer && BigInt(r.deadline) > BigInt(Math.floor(Date.now() / 1000)), 'relay_authorization_changed', undefined, 409);

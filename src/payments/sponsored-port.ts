@@ -4,6 +4,7 @@ import { fingerprint } from '../flows/engine';
 import type { FlowBinding, FlowKind } from '../flows/types';
 import { compactAuthorization } from './compact-account';
 export type RelayIntent = {
+    reviewLabel?: string;
     id: string;
     status: 'quoted' | 'submitting' | 'submitted' | 'unknown' | 'finalized' | 'failed' | 'released';
     kind: Exclude<FlowKind, 'approval'>;
@@ -65,7 +66,7 @@ export function createSponsoredPort(c: SponsoredPortConfig) {
             throw Error('Sponsored quote expired or exact calls are invalid.');
     }
     const typed = (v: RelayIntent) => compactAuthorization(v.account, v.chainId, v.calls, v.relayer, BigInt(v.nonce), BigInt(v.deadline));
-    const snapshot = (v: RelayIntent) => JSON.stringify([v.id, v.kind, v.owner.toLowerCase(), fingerprint(v.binding), hashTypedData(typed(v))]);
+    const snapshot = (v: RelayIntent) => JSON.stringify([v.id, v.kind, v.owner.toLowerCase(), fingerprint(v.binding), v.reviewLabel, hashTypedData(typed(v))]);
     async function read() { if (!current)
         throw Error('No sponsored intent to check.'); const response = await request(base + '/sponsored-intents/' + encodeURIComponent(current.id)) as {
         intent: RelayIntent;

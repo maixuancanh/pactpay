@@ -14,7 +14,43 @@ The authenticated room lists voluntary attendance confirmations from members aft
 
 ## Portaldot V3 acceptance still required
 
-The automatic relay policy and acceptance file currently cover the V1 escrow. Protected V2 uses different call selectors and pooled claims. Keep V2 fee sponsorship unavailable in public checkout until its policy, cost accounting and finalized receipts are accepted for that contract.
+## Prepared Protected V2 sponsorship
+
+Protected V2 now has its own relay planner, acceptance-file verifier and checkout integration. Its operator instance is isolated from the V1 relay. The server reconstructs exact calls from the locked roster and finalized contract state. Browser-provided amounts, recipients or arbitrary calls are not accepted.
+
+| Action | Authorized calls |
+| --- | --- |
+| Open payments | `create` with agreed roster, shares, terms hash and deadlines |
+| Pay a share | Exact `approve` followed by `contribute`, atomically |
+| Cancel | Merchant `cancel` |
+| Receive a refund | Eligible `settle` followed by pooled `claim`, atomically |
+| Receive merchant funds | `capture`, then a later eligible `settle` + `claim` after the complaint window |
+
+An already-settled position can claim existing credit. Claim transfers the actor's entire contract credit, including any other bookings. Capture is never presented as receipt of money. Complaint and negotiated-resolution controls remain on the existing wallet path.
+
+A Google user can choose **Merchant-covered fees** only when their registered payment account matches the fixed account on the booking. Existing bookings retain their original account. A compact account cannot take ownership of a booking assigned to a different Google or native wallet.
+
+The prepared path reserves the maximum execution and storage costs, respects the total booking cap across days and budgets, serializes the account nonce and signer, journals a hash before broadcast, reconciles unknown submissions without resending, and binds finalized V2 events back to the room. Cancellation opens the refund path; it does not transfer a buyer's credit.
+
+### Operator setup, left disabled
+
+Use separate V2 operator files; V1 continues to use `COMPACT_RELAY_*`.
+
+```dotenv
+PROTECTED_RELAY_ENABLED=false
+# Absolute paths outside the repository; do not commit signer material.
+PROTECTED_RELAY_SIGNER_FILE=/run/secrets/pactpay-protected-relayer
+PROTECTED_RELAY_POLICY_FILE=/run/config/pactpay-protected-policy.json
+PROTECTED_RELAY_ACCEPTANCE_FILE=/run/config/pactpay-protected-acceptance.json
+```
+
+Copy `server/sponsorship/protected-policy.example.json` to private operator configuration. Replace the merchant allowlist, choose caps from real runtime estimates and fund the approved operator separately when live work resumes. Amounts in this example use native base units (14 decimals); they are policy ceilings, not quotes or measured charges. A saved merchant budget does not fund the relayer.
+
+The V2 policy must declare `version: protected-v2` and match the configured Protected V2 contract. The acceptance file uses schema `pactpay-native-relay-acceptance-v2`; its executions must provide finalized evidence for publish, payment, capture, payout, refund and cancel. The server checks compact ownership, signer, decoded target calls and finalized cost accounting. No environment flag bypasses missing acceptance evidence.
+
+At the user's request, no new automated scenario or live V3 transaction was run for this preparation. Only TypeScript and production build checks were performed. V2 sponsorship remains unavailable until operator setup and V3 acceptance are completed. No additional contract deployment is needed for this path.
+
+## Deferred Portaldot V3 acceptance
 
 1. Record separate merchant, buyer owner, buyer payment-account and operator addresses. Verify the buyer's native balance before the first action. The buyer needs the exact dUSD share and an account already registered for the tested execution path.
 2. Estimate the payment and the cancellation/refund path separately. Include fee and storage for both in the operator budget. Check the daily per-booking, per-account and global caps before any signature. Preserve a reservation when broadcast status is unknown.

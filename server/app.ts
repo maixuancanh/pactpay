@@ -72,6 +72,7 @@ import {AtomicAccounts,type AtomicAccountVerifier} from './auth/atomic-account.j
 import {nativeAtomicAccountVerifier} from './auth/atomic-native-reader.js';
 export type AppConfig = {
   compactRelay?:CompactRelay;
+  protectedRelay?:CompactRelay;
   origin: string;
   chainId: number;
   googleClientId?: string;
@@ -176,6 +177,8 @@ export function createApp(db: Database, config: AppConfig) {
             google: !!config.googleClientId,
             embeddedWallet: !!(config.privyAppId && config.privyAppSecret),
             sponsoring: !!config.compactRelay?.available,
+            protectedSponsoring: !!config.protectedRelay?.available,
+            protectedSponsorshipPrepared: true,
             batching: !!config.compactRelay?.available,
             protectedContract: !!config.protectedDeployment,
             ocr: !!config.ocr,
@@ -351,21 +354,21 @@ export function createApp(db: Database, config: AppConfig) {
         if(method==='POST')return send(await eoaCheck.verify(wallet,p));
       }
       if(path==='/api/account/atomic'){
-        if(method==='GET')return send({account:await atomicAccounts.get(uid),relayAvailable:!!config.compactRelay?.available});
-        if(method==='POST')return send({account:await atomicAccounts.register(uid,p.accountAddress),relayAvailable:!!config.compactRelay?.available});
+        if(method==='GET')return send({account:await atomicAccounts.get(uid),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
+        if(method==='POST')return send({account:await atomicAccounts.register(uid,p.accountAddress),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
       }
-      if(path==='/api/account/atomic/activate'&&method==='POST')return send({account:await atomicAccounts.activate(uid,p.enabled),relayAvailable:!!config.compactRelay?.available});
+      if(path==='/api/account/atomic/activate'&&method==='POST')return send({account:await atomicAccounts.activate(uid,p.enabled),relayAvailable:!!(config.compactRelay?.available||config.protectedRelay?.available)});
       if(path==='/api/sponsorship/budgets'){
-        const budgets=new MerchantBudgets(db,!!config.compactRelay?.available);
+        const budgets=new MerchantBudgets(db,!!(config.compactRelay?.available||config.protectedRelay?.available));
         if(method==='GET')return send({budgets:await budgets.list(uid)});
         if(method==='POST')return send({budget:await budgets.save(uid,null,p)},201);
       }
       const budgetRoute=path.match(/^\/api\/sponsorship\/budgets\/([^/]+)$/);
-      if(budgetRoute&&method==='PATCH')return send({budget:await new MerchantBudgets(db,!!config.compactRelay?.available).save(uid,budgetRoute[1],p)});
+      if(budgetRoute&&method==='PATCH')return send({budget:await new MerchantBudgets(db,!!(config.compactRelay?.available||config.protectedRelay?.available)).save(uid,budgetRoute[1],p)});
 
       const sponsoredRoute=path.match(/^\/api\/rooms\/([^/]+)\/(sponsorship|sponsored-intents)(?:\/([^/]+))?(?:\/(submit|cancel))?$/);
-      if(sponsoredRoute){const [,roomId,kind,intentId,operation]=sponsoredRoute;await rooms.get(uid,roomId);const relay=config.compactRelay;
-        if(kind==='sponsorship'&&method==='GET')return send(relay?await relay.status(uid,roomId):{available:false,reason:'Automatic sponsorship needs operator configuration and verified V3 acceptance.'});
+      if(sponsoredRoute){const [,roomId,kind,intentId,operation]=sponsoredRoute;const sponsoredRoom=await rooms.get(uid,roomId);const relay=sponsoredRoom.settlementVersion==='protected-v2'?config.protectedRelay:config.compactRelay;
+        if(kind==='sponsorship'&&method==='GET')return send(relay?await relay.status(uid,roomId):{available:false,prepared:true,reason:'Fee coverage is prepared and waiting to be enabled.'});
         requireThat(relay,'relay_unavailable',undefined,503);
         if(!intentId&&method==='POST')return send({intent:await relay.create(uid,roomId,p)},201);
         if(intentId&&method==='GET')return send({intent:await relay.get(uid,roomId,intentId)});
@@ -675,6 +678,8 @@ export async function start(db: Database, localDevelopment = false) {
     localDevelopment || config.origin.startsWith("https://"),
     "production_https_required",
   );
+  const protectedRelaySetup=config.protectedDeployment?await configureCompactRelay(db,config.protectedDeployment):null;
+  if(protectedRelaySetup)config.protectedRelay=protectedRelaySetup.relay;
   const app = createApp(db, config);
   const timers: ReturnType<typeof setInterval>[] = [];
   let busy = false;
@@ -689,6 +694,7 @@ export async function start(db: Database, localDevelopment = false) {
       busy = true;
       try {
         await config.compactRelay?.tick();
+        await config.protectedRelay?.tick();
         await scheduleReminders(db);
         if (config.email) {
           await scheduleEmail(db);
@@ -769,7 +775,7 @@ export async function start(db: Database, localDevelopment = false) {
   );
   const stop = () => {
     for (const timer of timers) clearInterval(timer);
-    app.server.close(() => {void relaySetup?.close();void db.close();});
+    app.server.close(() => {void relaySetup?.close();void protectedRelaySetup?.close();void db.close();});
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);

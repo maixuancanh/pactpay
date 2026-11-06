@@ -1,0 +1,24 @@
+{
+  "version": "protected-v2",
+  "escrow": "0x1e6b99aab17174409fcacb591542aeba6d6113d6",
+  "token": "0x85c6d3f215f972459fcc7f816eb4c5733aadcd4a",
+  "merchantOwners": [
+    "0x1111111111111111111111111111111111111111"
+  ],
+  "feeCap": "10000000000000",
+  "storageCap": "3000000000000000",
+  "maxPerAccountDay": "10000000000000000",
+  "maxPerRoomDay": "20000000000000000",
+  "maxPerRoom": "30000000000000000",
+  "maxGlobalDay": "50000000000000000",
+  "actionCaps": {
+    "cancel": {
+      "feeCap": "10000000000000",
+      "storageCap": "100000000000000"
+    },
+    "refund": {
+      "feeCap": "10000000000000",
+      "storageCap": "2000000000000000"
+    }
+  }
+}

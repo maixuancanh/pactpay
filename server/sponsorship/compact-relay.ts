@@ -1,11 +1,13 @@
 import { recoverTypedDataAddress, keccak256, hashTypedData, type Address, type Hex } from 'viem';
 import type { Database, Row } from '../db/database.js';
 import { id, text, requireThat, hex32, canonical, hash } from '../lib.js';
-import { Rooms, authorizedRoom } from '../rooms/service.js';
+import { Rooms } from '../rooms/service.js';
 import { SponsorBudget } from './budget.js';
 import type { SponsorPolicy } from './policy.js';
 import { buildRelayPlan, type RelayAction, type RelaySnapshot } from './compact-planner.js';
 import { relayAuthorization, relayExecution, type RelayRequest, type SignedRelayRequest } from './compact-codec.js';
+import {buildProtectedRelayPlan, type ProtectedRelaySnapshot} from './protected-planner.js';
+import {protectedRooms, type ProtectedConfig} from '../payments/protected-rooms.js';
 export type RelayPrepared = {
     fee: string;
     storage: string;
@@ -34,6 +36,7 @@ export interface RelayDriver {
         spendable: string;
     }>;
     readSnapshot(account: Address, escrow: Address, quoteId: Hex): Promise<RelaySnapshot>;
+    readProtectedSnapshot?(account: Address, escrow: Address, quoteId?: Hex): Promise<ProtectedRelaySnapshot>;
     prepare(request: SignedRelayRequest): Promise<RelayPrepared>;
     sign(prepared: RelayPrepared): Promise<{
         hash: Hex;
@@ -55,6 +58,7 @@ export interface RelayDriver {
     }>;
 }
 export type CompactRelayConfig = {
+    protectedDeployment?: ProtectedConfig;
     driver: RelayDriver;
     escrow: Address;
     token: Address;
@@ -72,20 +76,36 @@ export type CompactRelayConfig = {
     accepted: boolean;
 };
 const active = ['quoted', 'submitting', 'submitted', 'unknown'];
-const view = (r: Row) => ({ id: r.id, status: r.journal?.receiptStatus ?? r.status, settlementPending: !!r.journal?.receiptStatus && ['submitted', 'unknown'].includes(r.status), kind: r.kind, ...r.request, binding: r.binding, txHash: r.tx_hash ?? undefined, actualExecution: r.actual_execution ?? undefined, actualStorage: r.actual_storage ?? undefined, error: r.error ?? undefined });
+const view = (r: Row) => ({ reviewLabel: r.binding?.reviewLabel, id: r.id, status: r.journal?.receiptStatus ?? r.status, settlementPending: !!r.journal?.receiptStatus && ['submitted', 'unknown'].includes(r.status), kind: r.kind, ...r.request, binding: r.binding, txHash: r.tx_hash ?? undefined, actualExecution: r.actual_execution ?? undefined, actualStorage: r.actual_storage ?? undefined, error: r.error ?? undefined });
 /** Durable hashes/state only. Owner signatures and signed extrinsic bytes remain in request memory. */
 export class CompactRelay {
     private rooms: Rooms;
     private budgets: SponsorBudget;
     constructor(private db: Database, private c: CompactRelayConfig) { this.rooms = new Rooms(db, 420420777); const policy: SponsorPolicy = { chainId: 420420777, contracts: { [c.escrow]: ['publish', 'payment', 'merchant-payout', 'refund', 'cancel'] }, maxPerAction: String(Object.values(c.actionCaps ?? {}).reduce((largest, cap) => { const sum = BigInt(cap!.feeCap) + BigInt(cap!.storageCap); return sum > largest ? sum : largest; }, BigInt(c.feeCap) + BigInt(c.storageCap))), maxPerAccountDay: c.maxPerAccountDay, maxPerRoomDay: c.maxPerRoomDay, maxPerRoom: c.maxPerRoom, enabled: c.accepted }; this.budgets = new SponsorBudget(db, policy); }
     get available() { return this.c.accepted; }
-    private async row(userId: string, roomId: string, intentId: string) { await authorizedRoom(this.db, roomId, userId); const r = (await this.db.query('SELECT * FROM compact_relay_intents WHERE id=$1 AND room_id=$2 AND user_id=$3', [intentId, roomId, userId])).rows[0]; requireThat(r, 'relay_intent_not_found', undefined, 404); return r; }
+    private matchesVersion(room: Row) {
+        return (room.settlementVersion === 'protected-v2') === !!this.c.protectedDeployment;
+    }
+    private async plan(room: Row, account: Address, action: RelayAction, expiresAt: number) {
+        requireThat(this.matchesVersion(room), 'relay_version_mismatch', undefined, 409);
+        if (this.c.protectedDeployment) {
+            requireThat(this.c.driver.readProtectedSnapshot, 'relay_protected_reader_required');
+            const snapshot = await this.c.driver.readProtectedSnapshot!(account, this.c.escrow, room.protectedBooking?.quoteId);
+            return buildProtectedRelayPlan({room, account, action, escrow: this.c.escrow, token: this.c.token,
+                snapshot, now: Date.now(), expiresAt});
+        }
+        const snapshot = action === 'publish' ? undefined :
+            await this.c.driver.readSnapshot(account, this.c.escrow, room.quote?.quoteId);
+        return buildRelayPlan({room, account, action, escrow: this.c.escrow, token: this.c.token,
+            snapshot, now: Date.now(), expiresAt});
+    }
+    private async row(userId: string, roomId: string, intentId: string) { const room=await this.rooms.get(userId,roomId); requireThat(this.matchesVersion(room),'relay_version_mismatch'); const r = (await this.db.query('SELECT * FROM compact_relay_intents WHERE id=$1 AND room_id=$2 AND user_id=$3', [intentId, roomId, userId])).rows[0]; requireThat(r, 'relay_intent_not_found', undefined, 404); return r; }
     private async budget(room: Row) { if (this.c.merchantOwners) {
         const owner = (await this.db.query('SELECT owner_address FROM wallet_bindings WHERE user_id=$1 AND chain_id=420420777', [room.merchantId])).rows[0]?.owner_address;
         if (!owner || !this.c.merchantOwners.includes(owner))
             return null;
     } return (await this.db.query("SELECT * FROM sponsorship_budgets WHERE merchant_id=$1 AND enabled=true ORDER BY id LIMIT 1", [room.merchantId])).rows[0]; }
-    async status(userId: string, roomId: string) { const room = await this.rooms.get(userId, roomId); await this.expire(); const budget = await this.budget(room), r = (await this.db.query("SELECT * FROM compact_relay_intents WHERE user_id=$1 AND room_id=$2 AND status IN ('quoted','submitting','submitted','unknown') AND journal->>'receiptStatus' IS NULL ORDER BY created_at DESC LIMIT 1", [userId, roomId])).rows[0]; const control = (await this.db.query('SELECT enabled FROM compact_relay_control WHERE id=1')).rows[0]; return { available: this.available && !!budget && !!control?.enabled, reason: !control?.enabled ? 'Sponsorship is paused by the operator.' : !this.available ? 'Automatic sponsorship is awaiting configured signer and verified V3 acceptance.' : !budget ? 'The merchant has not enabled a sponsorship budget.' : undefined, budget: budget ? { remaining: String(BigInt(budget.cap) - BigInt(budget.spent) - BigInt(budget.reserved)) } : undefined, activeIntent: r ? view(r) : undefined }; }
+    async status(userId: string, roomId: string) { const room = await this.rooms.get(userId, roomId); await this.expire(); const budget = await this.budget(room), r = (await this.db.query("SELECT * FROM compact_relay_intents WHERE user_id=$1 AND room_id=$2 AND status IN ('quoted','submitting','submitted','unknown') AND journal->>'receiptStatus' IS NULL ORDER BY created_at DESC LIMIT 1", [userId, roomId])).rows[0]; const control = (await this.db.query('SELECT enabled FROM compact_relay_control WHERE id=1')).rows[0]; return { available: this.available && this.matchesVersion(room) && !!budget && !!control?.enabled, reason: !this.matchesVersion(room) ? 'This fee service does not support this booking version.' : !control?.enabled ? 'Sponsorship is paused by the operator.' : !this.available ? 'Automatic sponsorship is awaiting configured signer and verified V3 acceptance.' : !budget ? 'The merchant has not enabled a sponsorship budget.' : undefined, budget: budget ? { remaining: String(BigInt(budget.cap) - BigInt(budget.spent) - BigInt(budget.reserved)) } : undefined, activeIntent: r ? view(r) : undefined }; }
     async create(userId: string, roomId: string, raw: Row) {
         requireThat(this.available, 'relay_unavailable', undefined, 503);
         const kind = text(raw.kind, 30) as RelayAction;
@@ -107,7 +127,7 @@ export class CompactRelay {
         requireThat(actor === registration.account_address, 'relay_room_account_mismatch', undefined, 409);
         const account = actor as Address, owner = registration.owner_address as Address, identity = await this.c.driver.quote({ account, owner });
         requireThat(BigInt(identity.spendable) >= BigInt(caps.feeCap) + BigInt(caps.storageCap), 'relay_native_funds_insufficient', undefined, 409);
-        const expiresAt = Date.now() + 120000, snapshot = kind === 'publish' ? undefined : await this.c.driver.readSnapshot(account, this.c.escrow, room.quote?.quoteId), plan = buildRelayPlan({ room, account, action: kind, escrow: this.c.escrow, token: this.c.token, snapshot, now: Date.now(), expiresAt });
+        const expiresAt = Date.now() + 120000, plan = await this.plan(room, account, kind, expiresAt);
         const request: RelayRequest = { account, owner, chainId: 420420777, relayer: identity.relayer, nonce: identity.nonce, deadline: String(Math.floor(expiresAt / 1000)), maxFee: caps.feeCap, maxStorage: caps.storageCap, calls: plan.calls };
         const binding = { ...plan.binding, fee: caps.feeCap, storage: caps.storageCap, actionId: 'sponsored:' + hashTypedData(relayAuthorization(request)) };
         const b = await this.budget(room);
@@ -143,12 +163,13 @@ export class CompactRelay {
         requireThat(BigInt(request.deadline) > BigInt(Math.floor(Date.now() / 1000)), 'relay_quote_expired');
         requireThat((await recoverTypedDataAddress({ ...relayAuthorization(request), signature: signature as Hex })).toLowerCase() === request.owner.toLowerCase(), 'relay_signature_owner_mismatch', undefined, 403);
         // Fresh server plan must be identical. No browser amount, calls, recipient or caps are trusted.
-        const room = await this.rooms.get(userId, roomId), snapshot = r.kind === 'publish' ? undefined : await this.c.driver.readSnapshot(request.account, this.c.escrow, r.binding.quoteId);
-        const plan = buildRelayPlan({ room, account: request.account, action: r.kind, escrow: this.c.escrow, token: this.c.token, snapshot, now: Date.now(), expiresAt: r.binding.estimateExpiresAt });
+        const room = await this.rooms.get(userId, roomId);
+        const plan = await this.plan(room, request.account, r.kind, r.binding.estimateExpiresAt);
         requireThat(room.revision === r.binding.revision && canonical(plan.calls) === canonical(request.calls), 'relay_plan_changed', undefined, 409);
+        if(this.c.protectedDeployment)requireThat(plan.binding.amount===r.binding.amount&&('reviewLabel' in plan.binding?plan.binding.reviewLabel:undefined)===r.binding.reviewLabel,'relay_review_changed',undefined,409);
         const signed = { ...request, signature: signature as Hex }, prepared = await this.c.driver.prepare(signed);
         requireThat(BigInt(prepared.fee) <= BigInt(request.maxFee) && BigInt(prepared.storage) <= BigInt(request.maxStorage), 'relay_cost_exceeds_cap', undefined, 409);
-        const publication = r.kind === 'publish' ? await this.rooms.publish(userId, roomId, { revision: r.binding.revision, idempotencyKey: 'room:' + roomId + ':' + r.binding.revision, chainId: 420420777, escrow: this.c.escrow, quoteId: r.binding.quoteId }) : null;
+        const publication = r.kind === 'publish' && !this.c.protectedDeployment ? await this.rooms.publish(userId, roomId, { revision: r.binding.revision, idempotencyKey: 'room:' + roomId + ':' + r.binding.revision, chainId: 420420777, escrow: this.c.escrow, quoteId: r.binding.quoteId }) : null;
         const claimed = await this.db.transaction(async (tx) => { const row = (await tx.query('SELECT * FROM compact_relay_intents WHERE id=$1 FOR UPDATE', [r.id])).rows[0]; if (row.status !== 'quoted')
             return false; const control = (await tx.query('SELECT enabled FROM compact_relay_control WHERE id=1')).rows[0]; requireThat(control?.enabled, 'relay_circuit_paused', undefined, 503); const budget = (await tx.query('SELECT * FROM sponsorship_budgets WHERE id=$1 FOR UPDATE', [row.budget_id])).rows[0]; requireThat(budget?.enabled, 'relay_budget_paused', undefined, 409); const signerClaim = await tx.query('INSERT INTO compact_relay_signer_lock(signer,intent_id) VALUES($1,$2) ON CONFLICT(signer) DO NOTHING RETURNING signer', [request.relayer, r.id]); requireThat(signerClaim.rows.length, 'relay_signer_busy', undefined, 409); await tx.query("UPDATE compact_relay_intents SET status='submitting',updated_at=now() WHERE id=$1", [r.id]); await tx.query("UPDATE sponsorship_reservations SET status='unknown' WHERE id=$1", [r.reservation_id]); return true; });
         if (!claimed)
@@ -194,6 +215,14 @@ export class CompactRelay {
             await this.db.query("UPDATE compact_relay_intents SET journal=journal||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('submitted','unknown')", [r.id, JSON.stringify({ receiptStatus: proof.status, blockNumber: proof.blockNumber, blockHash: proof.blockHash })]);
             await this.db.query('DELETE FROM compact_relay_signer_lock WHERE intent_id=$1', [r.id]);
         }
+        if (proof.status === 'finalized' && this.c.protectedDeployment) {
+            requireThat(proof.blockNumber, 'relay_finalized_block_required');
+            const service = protectedRooms(this.db, this.c.protectedDeployment);
+            const evidence = {quoteId: r.binding.quoteId, txHash: r.tx_hash,
+                blockNumber: proof.blockNumber, revision: r.binding.revision};
+            if (r.kind === 'publish') await service.bind(r.user_id, r.room_id, evidence);
+            else if (r.kind !== 'cancel') await service.record(r.user_id, r.room_id, evidence);
+        }
         if (proof.status === 'unknown' || !proof.settlementKnown || proof.actualFee === undefined || proof.actualStorage === null || proof.actualStorage === undefined)
             return;
         const actual = BigInt(proof.actualFee) + BigInt(proof.actualStorage);
@@ -221,7 +250,7 @@ export class CompactRelay {
             catch { }
         }
     }
-    async tick() { await this.expire(); for (const r of (await this.db.query("SELECT * FROM compact_relay_intents WHERE status IN ('submitted','unknown') AND journal IS NOT NULL ORDER BY created_at LIMIT 20")).rows) {
+    async tick() { await this.expire(); for (const r of (await this.db.query("SELECT i.* FROM compact_relay_intents i JOIN rooms r ON r.id=i.room_id WHERE i.status IN ('submitted','unknown') AND i.journal IS NOT NULL AND r.settlement_version=$1 AND lower(i.binding->>'escrow')=$2 ORDER BY i.created_at LIMIT 20",[this.c.protectedDeployment?'protected-v2':'v1',this.c.escrow.toLowerCase()])).rows) {
         try {
             await this.reconcile(r);
         }
