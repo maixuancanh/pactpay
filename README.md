@@ -106,6 +106,8 @@ Creating a room, joining and accepting a share do not transfer tokens. Locking a
 
 ### Track each contribution and outcome
 
+Open the workshop preview on the bookings page to try full funding, incomplete funding and a complaint. The sample receipts link to recorded native evidence where available. Published Protected V2 rooms have a wallet-free receipt for the finalized financial record and a separate private attendance section. See the [booking outcomes and sponsored acceptance guide](docs/submission/booking-outcomes-and-sponsored-acceptance.md).
+
 - Review the member's exact share, current state and next action.
 - Approve the required allowance and contribute the fixed share.
 - Distinguish contributed funds, funds held, available credit and completed claims.

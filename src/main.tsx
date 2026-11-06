@@ -8,6 +8,7 @@ const BookingApp = React.lazy(() => import("./commerce/BookingApp"));
 const EmbedCheckout = React.lazy(() => import("./embed/CheckoutPage"));
 const ProtectedRoute = React.lazy(() => import("./payments/ProtectedRoute"));
 const PublicIndexedReceipt = React.lazy(() => import("./commerce/PublicIndexedReceipt"));
+const BookingExamples = React.lazy(() => import("./commerce/BookingExamples"));
 const AccountExecutorPage = React.lazy(() => import("./payments/AccountExecutorPage"));
 import "./style.css";
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -23,7 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     ) : location.pathname === "/native" || (import.meta.env.VITE_NATIVE_DEFAULT === 'true' && location.pathname === '/') ? (
       <React.Suspense fallback={<main className="setup-page" role="status">Loading native wallet workspace…</main>}><NativeApp /></React.Suspense>
     ) : location.pathname === "/receipt" ? (
-      <React.Suspense fallback={<main role="status">Loading receipt…</main>}>{new URLSearchParams(location.search).has('quoteId')?<PublicIndexedReceipt/>:<ReceiptPage/>}</React.Suspense>
+      <React.Suspense fallback={<main role="status">Loading receipt…</main>}>{new URLSearchParams(location.search).has('example')?<main className="setup-page"><BookingExamples standalone/></main>:new URLSearchParams(location.search).has('quoteId')?<PublicIndexedReceipt/>:<ReceiptPage/>}</React.Suspense>
     ) : location.pathname === "/setup" ? (
       <Setup />
     ) : (

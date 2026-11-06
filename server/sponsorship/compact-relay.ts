@@ -62,6 +62,7 @@ export type CompactRelayConfig = {
     storageCap: string;
     maxPerAccountDay: string;
     maxPerRoomDay: string;
+    maxPerRoom?: string;
     actionCaps?: Partial<Record<RelayAction, {
         feeCap: string;
         storageCap: string;
@@ -76,7 +77,7 @@ const view = (r: Row) => ({ id: r.id, status: r.journal?.receiptStatus ?? r.stat
 export class CompactRelay {
     private rooms: Rooms;
     private budgets: SponsorBudget;
-    constructor(private db: Database, private c: CompactRelayConfig) { this.rooms = new Rooms(db, 420420777); const policy: SponsorPolicy = { chainId: 420420777, contracts: { [c.escrow]: ['publish', 'payment', 'merchant-payout', 'refund', 'cancel'] }, maxPerAction: String(Object.values(c.actionCaps ?? {}).reduce((largest, cap) => { const sum = BigInt(cap!.feeCap) + BigInt(cap!.storageCap); return sum > largest ? sum : largest; }, BigInt(c.feeCap) + BigInt(c.storageCap))), maxPerAccountDay: c.maxPerAccountDay, maxPerRoomDay: c.maxPerRoomDay, enabled: c.accepted }; this.budgets = new SponsorBudget(db, policy); }
+    constructor(private db: Database, private c: CompactRelayConfig) { this.rooms = new Rooms(db, 420420777); const policy: SponsorPolicy = { chainId: 420420777, contracts: { [c.escrow]: ['publish', 'payment', 'merchant-payout', 'refund', 'cancel'] }, maxPerAction: String(Object.values(c.actionCaps ?? {}).reduce((largest, cap) => { const sum = BigInt(cap!.feeCap) + BigInt(cap!.storageCap); return sum > largest ? sum : largest; }, BigInt(c.feeCap) + BigInt(c.storageCap))), maxPerAccountDay: c.maxPerAccountDay, maxPerRoomDay: c.maxPerRoomDay, maxPerRoom: c.maxPerRoom, enabled: c.accepted }; this.budgets = new SponsorBudget(db, policy); }
     get available() { return this.c.accepted; }
     private async row(userId: string, roomId: string, intentId: string) { await authorizedRoom(this.db, roomId, userId); const r = (await this.db.query('SELECT * FROM compact_relay_intents WHERE id=$1 AND room_id=$2 AND user_id=$3', [intentId, roomId, userId])).rows[0]; requireThat(r, 'relay_intent_not_found', undefined, 404); return r; }
     private async budget(room: Row) { if (this.c.merchantOwners) {

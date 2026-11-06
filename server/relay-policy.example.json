@@ -6,5 +6,6 @@
   "storageCap": "500000000000000",
   "maxPerAccountDay": "5000000000000000",
   "maxPerRoomDay": "10000000000000000",
+  "maxPerRoom": "10000000000000000",
   "maxGlobalDay": "20000000000000000"
 }

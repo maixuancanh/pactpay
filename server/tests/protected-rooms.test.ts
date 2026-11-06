@@ -8,6 +8,8 @@ import {migrate} from '../db/migrate.js';
 import {upsertIdentity} from '../auth/session.js';
 import {Rooms} from '../rooms/service.js';
 import {protectedRooms} from '../payments/protected-rooms.js';
+import {roomAttendance} from '../rooms/attendance.js';
+import {createApp} from '../app.js';
 import {id} from '../lib.js';
 const artifact=(name:string)=>JSON.parse(readFileSync(new URL('../../artifacts/contracts/'+name+'.sol/'+name+'.json',import.meta.url),'utf8'));
 test('protected room invitation, immutable V2 publication, cancelled refund and finalized receipt stay linked',async()=>{
@@ -57,6 +59,18 @@ test('protected room invitation, immutable V2 publication, cancelled refund and 
   room=await service.bind(users[0].id,room.id,{revision:room.revision,quoteId,blockNumber:String(created.blockNumber),txHash:create.hash});
   assert.equal(room.protectedBooking?.quoteId,quoteId);
   assert.equal(room.status,'published');
+  const attendance=roomAttendance(db);
+  await assert.rejects(()=>attendance.confirm(users[1].id,room.id),/attendance_not_open/);
+  await assert.rejects(()=>attendance.confirm(users[0].id,room.id),/attendance_member_required/);
+  await assert.rejects(()=>attendance.read('outsider',room.id),/forbidden/);
+  const afterService=roomAttendance(db,()=>new Date((now+7201)*1000));
+  const confirmed=await afterService.confirm(users[1].id,room.id);
+  assert.equal(confirmed.length,1);
+  assert.deepEqual(await afterService.confirm(users[1].id,room.id),confirmed);
+  assert.deepEqual(await afterService.read(users[0].id,room.id),confirmed);
+  const publicReceipt=await service.publicReceipt(quoteId);
+  assert.deepEqual(publicReceipt.positions,[{account:accounts[1],share:'10000',paid:'0',disputed:false,settled:false,contractCredit:'0'}]);
+  assert.ok(!JSON.stringify(publicReceipt).includes(users[1].id));
   // Retrying the verified bind is idempotent.
   await service.bind(users[0].id,room.id,{revision:room.revision,quoteId,blockNumber:String(created.blockNumber),txHash:create.hash});
   await(await token.getFunction('mint')(accounts[1],10000n)).wait();
@@ -79,6 +93,24 @@ test('protected room invitation, immutable V2 publication, cancelled refund and 
   assert.equal(snapshot.positions[0].position[4],true);
   assert.equal(snapshot.events.filter((e:any)=>e.event_name==='Claimed').length,1);
   assert.equal(await token.getFunction('balanceOf')(accounts[1]),10000n);
+  const app=createApp(db,{origin:'http://127.0.0.1:5173',chainId:31337,
+   protectedDeployment:{version:'protected-v2',chainId:31337,rpcUrl:rpc,address:await contract.getAddress(),deploymentBlock:'0'}});
+  await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  try{
+   const location=app.server.address();
+   assert(location&&typeof location!=='string');
+   const url='http://127.0.0.1:'+location.port+'/api/receipts/31337/'+(await contract.getAddress()).toLowerCase()+'/'+quoteId;
+   const response=await fetch(url);
+   assert.equal(response.status,200);
+   const receipt=await response.json() as any;
+   assert.equal(receipt.snapshot.positions[0].paid,'10000');
+   assert.equal(receipt.snapshot.positions[0].settled,true);
+   assert.equal(receipt.snapshot.positions[0].contractCredit,'0');
+   assert.ok(receipt.events.some((event:any)=>event.kind==='Settled'));
+   assert.ok(!receipt.events.some((event:any)=>event.kind==='Claimed'));
+   assert.ok(!JSON.stringify(receipt).includes(users[1].id));
+   assert.ok(!JSON.stringify(receipt).includes('confirmedAt'));
+  }finally{await new Promise<void>(resolve=>app.server.close(()=>resolve()));}
   await assert.rejects(()=>rooms.edit(users[0].id,room.id,{expectedRevision:room.revision,title:'Tampered'}),/room_not_editable/);
   if(process.env.PACTPAY_QA_BROWSER==='1'){
    const {createServer}=await import('node:http');

@@ -13,13 +13,13 @@ const abi=parseAbi([
 export type ProtectedConfig={version:'protected-v2';chainId:number;rpcUrl:string;address:string;deploymentBlock:string};
 export function protectedRooms(db:Database,deployment:ProtectedConfig){
  const client=createPublicClient({transport:http(deployment.rpcUrl,{timeout:12000,retryCount:1})});
- async function snapshot(quoteId:Hex,accounts:string[]){
+ async function snapshot(quoteId:Hex,accounts?:string[]){
   requireThat(await client.getChainId()===deployment.chainId,'protected_chain_mismatch');
   const block=await client.getBlock({blockTag:'finalized'});
   requireThat(block.number!==null&&block.number>=BigInt(deployment.deploymentBlock),'protected_finality_missing');
   const options={address:deployment.address as Address,abi,blockNumber:block.number};
   const booking=await client.readContract({...options,functionName:'booking',args:[quoteId]});
-  const positions=await Promise.all(accounts.map(async account=>{
+  const positions=await Promise.all((accounts??booking.members).map(async account=>{
    const [position,credit]=await Promise.all([
     client.readContract({...options,functionName:'positions',args:[quoteId,account as Address]}),
     client.readContract({...options,functionName:'credits',args:[account as Address]}),
@@ -36,6 +36,21 @@ export function protectedRooms(db:Database,deployment:ProtectedConfig){
   return state;
  }
  return {
+  async publicReceipt(quoteId:Hex){
+   const state=await snapshot(quoteId);
+   requireThat(state.booking.state!==0,'protected_booking_not_found',undefined,404);
+   const merchantCredit=await client.readContract({address:deployment.address as Address,abi,blockNumber:BigInt(state.blockNumber),functionName:'credits',args:[state.booking.merchant]});
+   return {
+    blockNumber:state.blockNumber,
+    blockHash:state.blockHash,
+    total:String(state.booking.total),
+    state:state.booking.state,
+    merchantCredit:String(merchantCredit),
+    positions:state.positions.map(({account,position,credit})=>({
+     account:account.toLowerCase(),share:String(position[0]),paid:String(position[1]),disputed:position[3],settled:position[4],contractCredit:String(credit),
+    })),
+   };
+  },
   async bind(userId:string,roomId:string,input:Row){
    const room=await roomView(db,roomId);
    await authorizedRoom(db,roomId,userId,true);

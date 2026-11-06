@@ -1,0 +1,35 @@
+.pp-booking-evidence {
+  margin-block: 24px;
+}
+.pp-booking-evidence .pp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 16px;
+}
+.pp-receipt-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
+  gap: 10px;
+}
+.pp-receipt-totals > div {
+  border: 1px solid #d5e2f1;
+  background: #f4f8fc;
+  padding: 12px;
+  border-radius: 12px;
+}
+.pp-receipt-totals dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+.pp-receipt-members {
+  list-style: none;
+  padding: 0;
+}
+.pp-receipt-members > li {
+  border-bottom: 1px solid #d5e2f1;
+  padding-bottom: 12px;
+}
+.pp-receipt-reference {
+  overflow-wrap: anywhere;
+}

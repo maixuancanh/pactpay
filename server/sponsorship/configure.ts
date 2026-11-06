@@ -22,6 +22,7 @@ export async function configureCompactRelay(db: Database) {
         feeCap: string;
         storageCap: string;
     }> = {};
+    const maxPerRoom = positive(policy.maxPerRoom ?? maxPerRoomDay);
     for (const [kind, cap] of Object.entries(policy.actionCaps ?? {})) {
         requireThat(['publish', 'payment', 'merchant-payout', 'refund', 'cancel'].includes(kind), 'relay_policy_action_invalid');
         const value = cap as Record<string, unknown>;
@@ -29,6 +30,7 @@ export async function configureCompactRelay(db: Database) {
         requireThat(BigInt(actionCaps[kind].feeCap) + BigInt(actionCaps[kind].storageCap) <= BigInt(maxPerAccountDay), 'relay_action_caps_invalid');
     }
     requireThat(BigInt(feeCap) + BigInt(storageCap) <= BigInt(maxPerAccountDay) && BigInt(maxPerAccountDay) <= BigInt(maxPerRoomDay), 'relay_policy_caps_invalid');
+    requireThat(BigInt(maxPerRoomDay) <= BigInt(maxPerRoom), 'relay_booking_cap_invalid');
     const [{ Keyring }, { cryptoWaitReady }] = await Promise.all([import('@polkadot/keyring'), import('@polkadot/util-crypto')]);
     await cryptoWaitReady();
     const uri = (await readFile(keyFile, 'utf8')).trim(), pair = new Keyring({ type: 'sr25519', ss58Format: 42 }).addFromUri(uri);
@@ -50,5 +52,5 @@ export async function configureCompactRelay(db: Database) {
         }
         accepted = ['publish', 'payment', 'merchant-payout', 'refund', 'cancel','rollback'].every(action => actions.has(action)) && process.env.INDEXER_SOURCE === 'native' && !!process.env.NATIVE_RPC && process.env.INDEXER_ESCROW?.toLowerCase() === escrow && /^\d+$/.test(process.env.INDEXER_START ?? '');
     }
-    return { relay: new CompactRelay(db, { driver, escrow, token, feeCap, storageCap, maxPerAccountDay, maxPerRoomDay, maxGlobalDay, merchantOwners, actionCaps, accepted }), close: () => driver.disconnect() };
+    return { relay: new CompactRelay(db, { driver, escrow, token, feeCap, storageCap, maxPerAccountDay, maxPerRoomDay, maxPerRoom, maxGlobalDay, merchantOwners, actionCaps, accepted }), close: () => driver.disconnect() };
 }

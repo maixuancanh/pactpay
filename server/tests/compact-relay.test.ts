@@ -26,6 +26,26 @@ async function fixture(){
  const config={driver,escrow:('0x'+'44'.repeat(20)) as Hex,token:('0x'+'55'.repeat(20)) as Hex,feeCap:'10',storageCap:'20',maxPerAccountDay:'1000',maxPerRoomDay:'1000',accepted:true};
  return {db,user,room,config,relay:new CompactRelay(db,config),sends:()=>sends,settle:()=>{settled=true;}};
 }
+test('a booking cap below the reserved fee and storage blocks sponsorship before signing',async()=>{
+ const f=await fixture();
+ try{
+  const limited=new CompactRelay(f.db,{...f.config,maxPerAccountDay:'29',maxPerRoomDay:'29'});
+  await assert.rejects(limited.create(f.user.id,f.room.id,{kind:'publish',idempotencyKey:'over-cap'}),/sponsor_daily_cap/);
+  assert.equal((await f.db.query("SELECT reserved FROM sponsorship_budgets WHERE id='budget'")).rows[0].reserved,'0');
+  assert.equal(f.sends(),0);
+ }finally{await f.db.close();}
+});
+test('the total booking cap retains older commitments when the daily cap resets',async()=>{
+ const f=await fixture();
+ try{
+  const limited=new CompactRelay(f.db,{...f.config,maxPerAccountDay:'35',maxPerRoomDay:'35',maxPerRoom:'50'});
+  await limited.create(f.user.id,f.room.id,{kind:'publish',idempotencyKey:'day-one'});
+  await f.db.query("UPDATE sponsorship_reservations SET authorization_data=jsonb_set(authorization_data,'{reservedDay}','\"2000-01-01\"')");
+  await assert.rejects(limited.create(f.user.id,f.room.id,{kind:'publish',idempotencyKey:'next-day'}),/sponsor_booking_cap/);
+  assert.equal((await f.db.query("SELECT reserved FROM sponsorship_budgets WHERE id='budget'")).rows[0].reserved,'30');
+  assert.equal(f.sends(),0);
+ }finally{await f.db.close();}
+});
 test('automatic relay recovers after reply loss on another instance and settles actual costs once',async()=>{const f=await fixture();try{
  const intent=await f.relay.create(f.user.id,f.room.id,{kind:'publish',idempotencyKey:'one'});assert.equal(intent.status,'quoted');assert.equal((await f.db.query("SELECT reserved FROM sponsorship_budgets WHERE id='budget'")).rows[0].reserved,'30');
  await assert.rejects(f.relay.create(f.user.id,f.room.id,{kind:'publish',idempotencyKey:'two'}));assert.equal((await f.db.query("SELECT reserved FROM sponsorship_budgets WHERE id='budget'")).rows[0].reserved,'30');

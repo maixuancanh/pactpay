@@ -30,6 +30,7 @@ import {
 } from "./auth/session.js";
 import { WalletBindings } from "./auth/wallet-binding.js";
 import { Rooms } from "./rooms/service.js";
+import { roomAttendance } from "./rooms/attendance.js";
 import { Inventory } from "./bookings/inventory.js";
 import { Templates } from "./templates/routes.js";
 import { Support } from "./support/service.js";
@@ -310,15 +311,34 @@ export function createApp(db: Database, config: AppConfig) {
         /^\/api\/receipts\/(\d+)\/(0x[\da-fA-F]{40})\/(0x[\da-fA-F]{64})$/,
       );
       if (receipt && method === "GET") {
-        const events = (
+        const deployment = config.protectedDeployment;
+        const snapshot = deployment && Number(receipt[1]) === deployment.chainId &&
+          receipt[2].toLowerCase() === deployment.address.toLowerCase()
+          ? await protectedRooms(db, deployment).publicReceipt(hex32(receipt[3]) as `0x${string}`)
+          : undefined;
+        const indexed = (
           await db.query(
             "SELECT chain_id,tx_hash,log_index,block_number,block_hash,escrow,quote_id,kind,payload,source,coverage,contract_version FROM chain_events WHERE chain_id=$1 AND escrow=$2 AND quote_id=$3 ORDER BY block_number::numeric,log_index",
             [receipt[1], receipt[2].toLowerCase(), receipt[3].toLowerCase()],
           )
         ).rows;
+        const recorded = snapshot ? (await db.query(
+          `SELECT b.chain_id,b.escrow,b.quote_id,e.tx_hash,e.log_index,e.block_number,e.block_hash,
+             e.event_name AS kind,e.event_args AS payload,'room-finalized' AS source,'recorded-only' AS coverage
+           FROM protected_room_bindings b JOIN protected_room_events e ON e.room_id=b.room_id
+           WHERE b.chain_id=$1 AND lower(b.escrow)=$2 AND lower(b.quote_id)=$3 AND e.event_name IN ('Created','Funded','Captured','Disputed','Settled')`,
+          [receipt[1], receipt[2].toLowerCase(), receipt[3].toLowerCase()],
+        )).rows : [];
+        const unique = new Map([...recorded, ...indexed].map(event => [event.tx_hash + ':' + event.log_index, event]));
+        const events = [...unique.values()].filter(event => !snapshot ||
+          (event.kind !== 'Claimed' && BigInt(event.block_number) <= BigInt(snapshot.blockNumber)),
+        ).sort((a, b) => BigInt(a.block_number) === BigInt(b.block_number)
+          ? Number(a.log_index) - Number(b.log_index)
+          : BigInt(a.block_number) < BigInt(b.block_number) ? -1 : 1);
         return send({
           events,
           coverage: events.length ? "indexed-finalized" : "unknown",
+          snapshot,
         });
       }
       requireThat(user, "authentication_required", undefined, 401);
@@ -387,6 +407,11 @@ export function createApp(db: Database, config: AppConfig) {
           return send({ room: await rooms.get(uid, rid) });
         if (!action && method === "PATCH")
           return send({ room: await rooms.edit(uid, rid, p) });
+        if (action === "attendance") {
+          const attendance = roomAttendance(db);
+          if (method === "GET") return send({ confirmations: await attendance.read(uid, rid) });
+          if (method === "POST") return send({ confirmations: await attendance.confirm(uid, rid) });
+        }
         if (action === "protected-booking") {
           requireThat(config.protectedDeployment, "protected_deployment_unavailable", undefined, 503);
           const protectedService=protectedRooms(db,config.protectedDeployment);

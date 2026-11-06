@@ -23,6 +23,7 @@ export type SponsorPolicy = {
   maxPerAction: string;
   maxPerAccountDay: string;
   maxPerRoomDay: string;
+  maxPerRoom?: string;
   enabled: boolean;
 };
 export function validateSponsorship(

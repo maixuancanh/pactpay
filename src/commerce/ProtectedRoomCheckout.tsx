@@ -1,5 +1,6 @@
 import {GoogleWalletVerification} from './GoogleWalletVerification';
 import {ProtectedResolution,type ResolutionTerms,type SignedResolution} from './ProtectedResolution';
+import {ProtectedReleaseGuide} from './ProtectedReleaseGuide';
 import {protectedOutcome,type ProtectedReceiptEvent} from './protected-outcome';
 import {useEffect,useRef,useState} from 'react';
 import {createPublicClient,http,encodeFunctionData,encodeAbiParameters,hashTypedData,recoverTypedDataAddress,keccak256,parseAbi,formatUnits,type Address,type Hex} from 'viem';
@@ -163,10 +164,11 @@ export function ProtectedRoomCheckout({room,onChange}:{room:Room;onChange:(room:
  return <section className="pp-panel pp-protected-checkout" aria-label="Protected booking checkout">
   <h2>Protected payments</h2><p>Payments stay in escrow through the {room.complaintSeconds!/60}-minute complaint window after capture. Unresolved complaints refund the buyer after {room.resolutionSeconds!/60} {room.resolutionSeconds===60?"minute":"minutes"}.</p>
   {!room.protectedBooking?<p>{room.status==='locked'?'Your group has agreed. Review opening payments on Portaldot.':'Invite your group and lock the agreed shares to open payments.'}</p>:snapshot?<><div className="pp-message"><strong>{Number(snapshot.booking.state)===3?'Booking cancelled':Number(snapshot.booking.state)===2?'Captured · complaint policy active':'Collecting agreed shares'}</strong><p>Funded {formatUnits(BigInt(snapshot.booking.funded),6)} / {formatUnits(BigInt(snapshot.booking.total),6)} demo dUSD · finalized block {snapshot.blockNumber}</p></div>
-  <ul className="pp-roster">{snapshot.positions.map(p=>{const member=room.members.find(m=>m.accountAddress.toLowerCase()===p.account.toLowerCase());return <li key={p.account}><span className="pp-member">{member?.nickname??'Member'}<small>{protectedOutcome(p.account,room.merchantAccountAddress!,p.position[1],p.position[4],Number(snapshot.booking.state),Number(snapshot.booking.state)===3?p.credit:snapshot.merchantCredit,snapshot.events)}</small></span><strong>{formatUnits(BigInt(p.position[1]),6)} dUSD<small>Contributed</small></strong></li>;})}</ul>
+  <ul className="pp-roster">{snapshot.positions.map(p=>{const member=room.members.find(m=>m.accountAddress.toLowerCase()===p.account.toLowerCase());return <li key={p.account}><span className="pp-member">{member?.nickname??'Member'}<small>{protectedOutcome(p.account,p.position[1],p.position[4],Number(snapshot.booking.state),snapshot.events)}</small></span><strong>{formatUnits(BigInt(p.position[1]),6)} dUSD<small>Contributed</small></strong></li>;})}</ul>
   <p>Your available credit on this contract · <strong>{formatUnits(BigInt(merchant?snapshot.merchantCredit:row?.credit??'0'),6)} dUSD</strong></p><p className="pp-muted">Credit covers all bookings on this contract. Receiving it transfers the full available balance to your fixed wallet.</p>
   {merchant&&room.members.length>1&&<label>Member to settle<select value={selected} onChange={e=>{setSelected(e.target.value);setNativeReview(null);setFlow(null);}}>{room.members.map(m=><option key={m.userId} value={m.accountAddress}>{m.nickname}</option>)}</select></label>}
-  {Number(snapshot.booking.capturedAt)>0&&<p>Complaint closes {new Date((Number(snapshot.booking.capturedAt)+Number(snapshot.booking.window))*1000).toLocaleString('en-GB')}</p>}
+  {row&&<ProtectedReleaseGuide booking={snapshot.booking as Parameters<typeof ProtectedReleaseGuide>[0]['booking']} now={BigInt(snapshot.timestamp)} disputed={row.position[3]} settled={row.position[4]}/>}
+  <a href={`/receipt?${new URLSearchParams({chainId:String(room.protectedBooking.chainId),escrow:room.protectedBooking.escrow,quoteId:room.protectedBooking.quoteId})}`}>Open public payment receipt</a>
   <details><summary>Payment evidence</summary><p className="pp-muted">{snapshot.coverage}</p>{snapshot.events.map(e=><p key={e.tx_hash+e.event_name}>{e.event_name} · block {e.block_number}<br/><span style={{overflowWrap:'anywhere'}}>{e.tx_hash}</span></p>)}</details>
   </>:<p role="status">Reading finalized payments…</p>}
   <div className="pp-form">

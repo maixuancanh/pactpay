@@ -26,7 +26,7 @@ export class SponsorBudget {
       ).rows[0];
       requireThat(b?.enabled, "budget_disabled", undefined, 503);
       const room = (
-        await tx.query("SELECT * FROM rooms WHERE id=$1 AND merchant_id=$2", [
+        await tx.query("SELECT * FROM rooms WHERE id=$1 AND merchant_id=$2 FOR UPDATE", [
           a.roomId,
           b.merchant_id,
         ])
@@ -115,6 +115,18 @@ export class SponsorBudget {
         undefined,
         409,
       );
+      if (this.policy.maxPerRoom !== undefined) {
+        const committed = (await tx.query(
+          "SELECT COALESCE(SUM(amount::numeric),0)::text AS total FROM sponsorship_reservations WHERE authorization_data->>'roomId'=$1 AND status<>'released'",
+          [a.roomId],
+        )).rows[0].total;
+        requireThat(
+          BigInt(committed) + BigInt(a.amount) <= BigInt(this.policy.maxPerRoom),
+          "sponsor_booking_cap",
+          undefined,
+          409,
+        );
+      }
       await tx.query("UPDATE sponsorship_budgets SET reserved=$2 WHERE id=$1", [
         budgetId,
         (BigInt(b.reserved) + BigInt(a.amount)).toString(),
