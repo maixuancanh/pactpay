@@ -1,0 +1,10 @@
+{
+  "escrow": "0x7c6b401e925d36305e96c3f5472d2bad67a6cc65",
+  "token": "0x85c6d3f215f972459fcc7f816eb4c5733aadcd4a",
+  "merchantOwners": ["0x9c45230c3aa792798ae3e9f74ecdcfd096eddd53"],
+  "feeCap": "10000000000000",
+  "storageCap": "500000000000000",
+  "maxPerAccountDay": "5000000000000000",
+  "maxPerRoomDay": "10000000000000000",
+  "maxGlobalDay": "20000000000000000"
+}

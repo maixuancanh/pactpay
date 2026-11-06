@@ -1,0 +1,2 @@
+import type { FlowState } from './types';
+export function FlowProgress({state}:{state:FlowState}) { return <section aria-label="Payment progress" aria-live="polite"><ol>{state.steps.map(s=><li key={s.id}><strong>{s.label}</strong> — {s.status}{s.detail&&<p>{s.detail}</p>}</li>)}</ol>{state.transactionHash&&<details><summary>Transaction reference</summary><p style={{overflowWrap:'anywhere'}}>{state.transactionHash}</p></details>}</section>; }

@@ -1,0 +1,1 @@
+const {ApiPromise,WsProvider}=require('@polkadot/api');(async()=>{const a=await ApiPromise.create({provider:new WsProvider('wss://test-node-v3.portaldot.dev'),noInitWarn:true});try{console.log(Object.entries(a.call.reviveApi).map(([k,v])=>({name:k,params:v.meta?.params})));}finally{await a.disconnect()}})().catch(e=>{console.error(e.message);process.exitCode=1});

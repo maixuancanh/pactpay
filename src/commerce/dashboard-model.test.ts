@@ -1,0 +1,13 @@
+import {describe,it,expect} from 'vitest';
+import {ownCredit,paymentCandidate,receiptHref,contributionDue,type CreditView} from './dashboard-model';
+import type {Room} from './types';
+const room={merchantId:'merchant',merchantAccountAddress:'0xaa',status:'funding',revision:1,fundingDeadline:'2099-01-01',members:[{userId:'buyer',accountAddress:'0xbb',share:'10',acceptedRevision:1}],quote:{chainId:420420777,escrow:'0xee',quoteId:'0x11'}} as Room;
+const snap={finality:'finalized',blockHash:'0x'+'a'.repeat(64),blockNumber:'12',state:4,credits:[{accountAddress:'0xaa',credit:'50'},{accountAddress:'0xbb',credit:'10'}]} as CreditView;
+describe('dashboard actionable evidence',()=>{
+ it('selects only the current actor credit, never the whole merchant roster',()=>{expect(ownCredit(room,'buyer',snap)).toEqual({amount:'10',kind:'refund'});expect(ownCredit(room,'merchant',{...snap,state:3})).toEqual({amount:'50',kind:'payout'});expect(ownCredit(room,'outsider',snap)).toBeNull();});
+ it('uses the contributor account for a merchant who also joined with another wallet',()=>{const both={...room,members:[{...room.members[0],userId:'merchant'}]};expect(ownCredit(both,'merchant',snap)).toEqual({amount:'10',kind:'refund'});});
+ it('does not infer received funds from zero or accept missing finality',()=>{expect(ownCredit(room,'buyer',{...snap,credits:[{...snap.credits[1],credit:'0'}]})?.amount).toBe('0');expect(()=>ownCredit(room,'buyer',{...snap,finality:'latest'})).toThrow();expect(()=>ownCredit(room,'buyer',{...snap,credits:[]})).toThrow();});
+ it('requires published, agreed, open funding before suggesting a payment review',()=>{expect(paymentCandidate(room,'buyer')).toBe(true);expect(paymentCandidate({...room,status:'captured'},'buyer')).toBe(false);expect(paymentCandidate({...room,quote:null},'buyer')).toBe(false);expect(paymentCandidate({...room,members:[{...room.members[0],paymentFinalized:true}]},'buyer')).toBe(false);expect(paymentCandidate({...room,fundingDeadline:'2000-01-01'},'buyer')).toBe(false);});
+ it('links only published receipts',()=>{expect(receiptHref({...room,quote:null})).toBeNull();expect(receiptHref(room)).toContain('chainId=420420777');});
+ it('does not suggest another payment when a finalized snapshot shows a paid share even if indexed history is missing',()=>{const fresh={...snap,state:1,credits:[{...snap.credits[1],share:'10',contribution:'10'}]};expect(contributionDue(room,'buyer',fresh)).toBe(false);expect(contributionDue(room,'buyer',{...fresh,credits:[{...fresh.credits[0],contribution:'0'}]})).toBe(true);expect(contributionDue(room,'buyer',{...fresh,credits:[]})).toBe(false);expect(contributionDue(room,'buyer',{...fresh,state:4})).toBe(false);});
+});

@@ -1,0 +1,4 @@
+import { describe,it,expect } from 'vitest';
+import {protectedMemberAction} from './protected-state';
+const state={paid:23n,settled:false,disputed:false,buyerCredit:0n,merchantCredit:0n,complaintDeadline:100,resolutionDeadline:200};
+describe('V2 projection',()=>{it('keeps member dispute independent and respects exact boundaries',()=>{expect(protectedMemberAction(state,99)).toBe('dispute-available');expect(protectedMemberAction(state,100)).toBe('merchant-settlement');expect(protectedMemberAction({...state,disputed:true},199)).toBe('mutual-resolution');expect(protectedMemberAction({...state,disputed:true},200)).toBe('default-refund');});it('never labels existing credit as a completed transfer',()=>{expect(protectedMemberAction({...state,settled:true,buyerCredit:23n},300)).toBe('credit-available');});});

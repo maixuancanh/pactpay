@@ -1,0 +1,3 @@
+import {defineConfig} from 'vite';
+import react from '@vitejs/plugin-react';
+export default defineConfig({plugins:[react(),{name:'checkout-frame-policy',configureServer(server){server.middlewares.use((req,res,next)=>{if(req.url?.split('?')[0]==='/embed'){const origins=(process.env.EMBED_ALLOWED_ORIGINS??'').split(',').filter(v=>{try{return new URL(v).origin===v&&/^https?:/.test(v);}catch{return false;}});res.setHeader('Content-Security-Policy',`frame-ancestors 'self' ${origins.join(' ')}`);}next();});}}],server:{proxy:{'/api':{target:'http://127.0.0.1:8787',changeOrigin:false}}},test:{include:['src/**/*.test.ts']}});

@@ -1,0 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog';
+import {X} from 'lucide-react';
+import type {ReactNode} from 'react';
+export function Sheet({open,onClose,title,description,children}:{open:boolean;onClose:()=>void;title:string;description:string;children:ReactNode}) {return <Dialog.Root open={open} onOpenChange={next=>{if(!next)onClose();}}><Dialog.Portal><Dialog.Overlay className="pp-overlay"/><Dialog.Content lang="en" className="pp-sheet" onFocusOutside={event=>event.preventDefault()} onInteractOutside={event=>{if(!(event.target instanceof Element)||!event.target.closest('.pp-overlay'))event.preventDefault();}}><div className="pp-sheet-head"><div><Dialog.Title>{title}</Dialog.Title><Dialog.Description>{description}</Dialog.Description></div><Dialog.Close className="pp-icon" aria-label="Close panel"><X size={20}/></Dialog.Close></div>{children}</Dialog.Content></Dialog.Portal></Dialog.Root>;}

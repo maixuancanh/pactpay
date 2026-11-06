@@ -1,0 +1,6 @@
+export type FlowKind = 'approval' | 'payment' | 'publish' | 'merchant-payout' | 'cancel' | 'refund';
+export type StepStatus = 'pending' | 'running' | 'awaiting-user' | 'confirmed' | 'failed' | 'unknown' | 'skipped';
+export type FlowBinding = { nativeDecimals?: number; costModel?: 'combined'; actionId?: string; account: string; chainId: number; escrow: string; quoteId: string; revision: number; termsHash: string; recipient: string; amount: string; fee: string; storage: string; walletCreation: string; feePayer: string; estimateExpiresAt: number };
+export type FlowStep = { id: string; label: string; status: StepStatus; detail?: string };
+export type FlowState = { kind: FlowKind; binding: FlowBinding; steps: FlowStep[]; reviewed?: string; intermediateTransactions?: {label:string;hash:string;to:string;data:string}[]; transactionHash?: string; attemptId?: string; submissionUncertain?: boolean; finalized: boolean; receiptPending: boolean };
+export type FlowPort = { submissionState?(): Partial<FlowState>; submitIncludesAuthorization?: boolean; persistAttempt?(state: FlowState): Promise<void>; preflight(): Promise<FlowBinding>; authorize(binding: FlowBinding): Promise<void>; submit(binding: FlowBinding): Promise<string>; confirm(hash: string): Promise<'finalized' | 'failed' | 'unknown'>; receipt(hash: string): Promise<void> };

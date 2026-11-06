@@ -1,0 +1,6 @@
+import {formatUnits} from 'viem';
+import {stepCost} from './cost-summary';
+export default function CostSummary({tx,spendable}:{tx:{fee:bigint;storageDeposit:bigint;address:string;specVersion:number;startBlock:number;createdAt:number};spendable:bigint}){
+ const cost=stepCost(BigInt(tx.fee||0),BigInt(tx.storageDeposit||0),spendable);
+ return <section className="native-checkout"><h3>Cost and remaining steps</h3><p>This step requires up to {formatUnits(cost.required,14)} tPOT from {tx.address}. Network fee already includes the adapter margin. Storage deposit is separate from payment.</p><p>Runtime {tx.specVersion ?? 'fixture'} · native block {tx.startBlock ?? 'fixture'} · estimated {new Date(tx.createdAt).toLocaleString()}</p>{!cost.affordable&&<p role="alert">Available native funds are below this estimate. Refresh your wallet before signing.</p>}<ol><li>Member: exact-share approval, then contribution.</li><li>Merchant: capture funded collection, then claim payout.</li><li>If cancelled or expired: process expiry when required, then each member claims their refund.</li></ol><p>Later step fees/storage: not yet estimated. Each is reviewed when the chain state permits it. There is no guaranteed whole-journey total or automatic storage refund.</p></section>;
+}

@@ -1,0 +1,14 @@
+import {concat,pad,toHex,keccak256,parseSignature,recoverTypedDataAddress,encodeFunctionData,decodeFunctionResult,type Address,type Hex,type Abi} from 'viem';
+import artifact from './compact-account-artifact.json';
+import type {AccountCall} from './pact-account';
+import type {NativeAdapter} from '../native/adapter';
+export function compactDeployment(owner:Address):Hex{return concat([artifact.bytecode as Hex,pad(owner,{size:32})]);}
+export function compactData(calls:readonly AccountCall[]):Hex{if(calls.length<1||calls.length>2)throw Error('One or two calls required');const[a,b]=calls;return concat([pad(a.target,{size:32}),toHex((a.data.length-2)/2,{size:32}),pad(b?.target??'0x0000000000000000000000000000000000000000',{size:32}),toHex(b?(b.data.length-2)/2:0,{size:32}),a.data,b?.data??'0x']);}
+export function compactAuthorization(account:Address,chainId:number,calls:readonly AccountCall[],relayer:Address,nonce:bigint,deadline:bigint){return{domain:{chainId,verifyingContract:account},types:{AtomicPayment:[{name:'dataHash',type:'bytes32'},{name:'relayer',type:'address'},{name:'nonce',type:'uint256'},{name:'deadline',type:'uint256'}]},primaryType:'AtomicPayment' as const,message:{dataHash:keccak256(compactData(calls)),relayer,nonce,deadline}};}
+export function compactExecution(calls:readonly AccountCall[],nonce:bigint,deadline:bigint,signature:Hex):Hex{const s=parseSignature(signature);return concat([toHex(deadline,{size:32}),toHex(nonce,{size:32}),toHex(s.v??BigInt(27+s.yParity!),{size:32}),s.r,s.s,compactData(calls)]);}
+export async function prepareCompactExecution(x:{adapter:NativeAdapter;sponsorNative:string;sponsorH160:Address;account:Address;owner:Address;chainId:number;calls:readonly AccountCall[];nonce:bigint;deadline:bigint;signature:Hex;maxFee:bigint;maxStorage:bigint}){
+ if(x.chainId!==420420777||x.deadline<=BigInt(Math.floor(Date.now()/1000)))throw Error('Wrong chain or expired authorization');
+ const owner=await recoverTypedDataAddress({...compactAuthorization(x.account,x.chainId,x.calls,x.sponsorH160,x.nonce,x.deadline),signature:x.signature});if(owner.toLowerCase()!==x.owner.toLowerCase())throw Error('Wrong compact owner signature');const actor=await x.adapter.account(x.sponsorNative);if(!actor.mapped||actor.h160.toLowerCase()!==x.sponsorH160.toLowerCase())throw Error('Sponsor mapping mismatch');
+ const raw=await x.adapter.readContractData(x.sponsorNative,x.account,encodeFunctionData({abi:artifact.abi as Abi,functionName:'owner'}));const actual=decodeFunctionResult({abi:artifact.abi as Abi,functionName:'owner',data:raw}) as Address;if(actual.toLowerCase()!==owner.toLowerCase())throw Error('Compact account owner differs');
+ const p=await x.adapter.prepareCall(x.sponsorNative,x.account,compactExecution(x.calls,x.nonce,x.deadline,x.signature),'Sponsor compact atomic payment');if(p.fee>x.maxFee||p.storageDeposit>x.maxStorage)throw Error('Actual sponsored costs exceed approved caps');return p;
+}

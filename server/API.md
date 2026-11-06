@@ -1,0 +1,50 @@
+# Commerce API (local implementation)
+
+Run `cd server; npm install; npm run dev:local` for persistent PGlite on 127.0.0.1:8787. This is real local PostgreSQL WASM storage, not hosted PostgreSQL or Google verification evidence. Production: DATABASE_URL and APP_ORIGIN, `npm run dev`.
+
+JSON bodies/responses, errors `{error:{code,message}}`. GET `/api/config` returns `{googleClientId:null|string,googleAvailable:boolean,privyAppId:null|string,privyAvailable:boolean,walletAvailable:boolean,chainId,capabilities:{...},localDevelopment:boolean,ocr:null|{recipient,cloud},paymentExecution:null|PublicExecution,protectedDeployment:null|ProtectedDeployment}`. Google GIS authenticates only; configured Privy verifies and restores the provider wallet. No development login HTTP endpoint. Test sessions exist only in injected tests.
+
+GET `/api/session` sets a short-lived anonymous HttpOnly cookie when logged out and returns `{user:null|{id,displayName},binding:null|{walletId,ownerAddress,accountAddress,chainId,mode},csrfToken}`. All POST/PATCH/DELETE require exact allowed `Origin`, cookies and `X-CSRF-Token`. Fetch with credentials. POST `/api/auth/google` `{idToken}`; uses Google's signed OIDC ID token, issuer/aud/exp/sub verified. POST `/api/auth/logout`. Binding routes are deliberately not trusted JSON address writes: POST `/api/wallet/challenge` `{chainId,address}` returns `{id,message}`, POST `/api/wallet/bind` `{challengeId,signature}` verifies wallet ownership, preserves existing canonical binding and refuses changes. This challenge path establishes an EOA ownership binding; it does not provision an embedded wallet.
+
+GET `/api/rooms` => `{rooms:Room[]}`. POST `/api/rooms` `{title,publicTerms,total,fundingDeadline,serviceAt}` => `{room:Room}`. Amounts positive integer strings in token base units; timestamps ISO. Room JSON: `{id,merchantId,title,publicTerms,total,fundingDeadline,serviceAt,revision,status,termsHash,members:[{userId,nickname,accountAddress,share,acceptedRevision}],quote:null|{chainId,escrow,quoteId,txHash,blockNumber,blockHash,source}}`.
+
+GET `/api/rooms/:id` => `{room}` requires merchant/member. PATCH same `{expectedRevision,title?,publicTerms?,total?,fundingDeadline?,serviceAt?}` invalidates every acceptance. POST `/api/rooms/:id/invitations` `{expiresAt,recipientUserId?}` => `{invitation:{id,token,expiresAt}}`; raw token returned once only. POST `/api/rooms/:id/invitations/:inviteId/revoke` `{}`. POST `/api/invitations/:token/join` `{nickname,share}` => `{room}`; requires canonical bound wallet; generic invitations are bearer invitation only, no recipient identity claim. Join increments revision; all members reaccept. POST `/api/rooms/:id/accept` `{revision}`. POST `/api/rooms/:id/lock` `{revision}` requires complete accepted roster and exact total. POST `/api/rooms/:id/publish-intents` `{revision,idempotencyKey,chainId,escrow,quoteId}` => `{intent}`. This only persists a publish intent; never broadcasts. POST `/api/rooms/:id/publish-intents/:intentId/submitted` `{txHash}` records unknown pending tx; repeat is idempotent, different hash blocked. Finalized binding can only be installed by verified chain adapter worker, never browser request.
+
+GET `/api/slots` => `{slots}` own merchant slots. POST `/api/slots` `{label,capacity,serviceAt}` => `{slot}`. POST `/api/rooms/:id/hold` `{slotId,quantity,ttlSeconds}` => `{hold}` (TTL <=3600). Funding holds survive draft TTL; only finalized reconciliation can release them.
+
+GET `/api/sync` => `{rooms,events,coverage}` private filtered chain evidence, coverage unknown until configured. GET `/api/receipts/:chainId/:escrow/:quoteId` public read-only chain evidence only, no names or private terms.
+
+GET `/api/templates` => `{templates}`; POST same `{title,publicTerms,total,sharePolicy:'equal'|'custom',durationMinutes,slotType}` => `{template}`. POST `/api/templates/:id/duplicate` `{fundingDeadline,serviceAt}` => `{room}` creates empty draft, never copies consent or identities.
+
+GET/PATCH `/api/notifications/preferences` `{inApp,email,timezone,quietStart,quietEnd}`. Email enabling returns 503 until transport configured. GET `/api/notifications` => `{notifications}` delivered in-app only. POST `/api/invoice/validate` `{currency,lineItems:[{label,amount}],subtotal,tax,service,discount,total,confidence}` => validation with manual-review requirement. POST `/api/invoice/extract` raw image body (image/png/jpeg/webp) <=10MB requires user consent for configured cloud processor and adapter; absent adapter returns 503. No OCR model silently configured.
+
+GET `/api/rooms/:id/support` => `{requests}` authorized merchant/member (members only own requests). POST same `{amount,reason,idempotencyKey}` => `{request}`; finalized captured contribution must exist. POST `/api/support/:id/decision` `{decision:'accepted'|'rejected'}` merchant only. POST `/api/support/:id/transfer` `{txHash}` records pending only; verified transfer adapter required to mark refunded. V1 cannot enforce merchant voluntary refund.
+
+GET `/health` => `{ok:true,database:'reachable'}`. All external signing, indexer provider, OCR/email delivery and sponsor transports fail closed until explicitly configured. A successful local API response is never chain settlement proof.
+
+POST `/api/auth/privy` `{accessToken}` verifies Privy token then fetches the linked Google and single user-controlled embedded Ethereum wallet server-side; returns session `{user,binding,csrfToken}`. GET `/api/config` must be refreshed after login to obtain account-specific execution capability. Existing binding drift returns409 and requires recovery.
+
+Locked room includes `canonicalTerms` exact public JSON string. Hashing this UTF-8 string equals locked `termsHash`; publish exactly this string on-chain. It excludes nicknames, user IDs and invite tokens. A `publicTerms` string alone is not the canonical terms document.
+
+POST `/api/rooms/:id/payment-attempts` `{binding:{account,chainId,escrow,quoteId,revision,termsHash},kind,attemptId,transactionHash?,submissionUncertain?}` records a durable unknown before sending. Same attempt is idempotent. Competing device attempt ID or replacement hash returns409. No secret/signed payload/browser finalized flag is trusted. `/api/sync` includes `attempts` belonging only to the session user. Unknown without a known transaction remains blocked for explicit recovery. Approval intermediate uses its own `kind:'approval'`, attemptId suffix and actual hash.
+
+POST `/api/support/:id/reconcile` `{}` verifies the known pending ERC20 transfer through configured finalized RPC reader. Exact original quote token, sender, recipient and amount required; browser request never supplies settlement facts.
+
+POST `/api/embed/sessions` `{roomId,merchantOrigin,ttlSeconds?}` creates authenticated merchant session only for finalized quote and exact allowlisted origin, <=900s. GET `/api/embed/sessions/:sessionId` public minimal `{session:{id,merchantOrigin,nonce,roomId,expiresAt,chainId,escrow,quoteId}}`. This bearer session is not permission to read private room PII. Merchant webhook worker signs finalized event deliveries separately; callback UI cannot establish payment.
+
+POST `/api/account/delete-private-profile` `{confirmation:'DELETE_PRIVATE_PROFILE'}` removes display name/email/nicknames/private support text, revokes invitations/sessions, cancels private notifications and removes notification preferences. Canonical provider subject, wallet ownership links, financial audit and public terms remain, expressly reported in response; this is not full blockchain erasure.
+
+
+Atomic account registration (compact-v1, no deployment): GET `/api/account/atomic` returns `{account,relayAvailable:false}`. POST same `{accountAddress}` verifies finalized V3 genesis/chain, deployed owner and exact pinned compact runtime against the authenticated canonical Privy Google EOA. Registration is separate from `binding`; old room/member accounts are unchanged. POST `/api/account/atomic/activate` `{enabled:boolean}` only selects availability for future explicit selection; it does not enable a relayer. Browser activation is disabled until relay acceptance. New room/join may explicitly supply `accountAddress`; omission retains EOA. Session includes optional `atomicAccount` with finalized verification metadata.
+
+Sync pagination: GET `/api/sync?after=<nextCursor>` returns at most 1,000 events and `nextCursor` or null. Consumers must drain all pages before deriving full history; failed/stalled pagination must retain stale/unknown state. Attempts are independently scoped to the authenticated user.
+
+
+Automatic compact sponsorship:
+- GET `/api/rooms/:roomId/sponsorship` => `{available,reason?,budget?,activeIntent?}`. Private to authenticated room participants; only the caller's intent is returned.
+- POST `/api/rooms/:roomId/sponsored-intents` `{kind,idempotencyKey}` => `{intent}`. The server derives actor/owner/calls/quote/recipient/cost limits from canonical registration, current room and finalized chain reads. It reserves the room merchant's enabled budget and never broadcasts at this stage.
+- GET `/api/rooms/:roomId/sponsored-intents/:intentId` => `{intent}`; native recovery may advance. No signature or transaction resend.
+- POST same `/submit` `{signature}` accepts only the exact bounded owner authorization for that server intent. Complete simulation, budget and pause checks precede signing/broadcast. One job can claim the native signer once. A repeat request returns its existing state.
+- POST same `/cancel` `{}` releases only a provably unsubmitted quote; unknown/submitted requests cannot be cancelled through this endpoint.
+
+Intent states: quoted, submitting, submitted, unknown, finalized, failed, released. `settlementPending:true` means money outcome is confirmed but actual fee/storage accounting is unresolved; its reservation remains held. `/api/sync` includes up to100 recent own `relayIntents` with no signature, signed extrinsic bytes or private provider credentials. Operator setup and proof gating: `docs/AUTOMATIC_SPONSOR_RELAY.md`.

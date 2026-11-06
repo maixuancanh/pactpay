@@ -1,0 +1,15 @@
+import { createFlow,executeFlow,reviewFlow } from './engine';
+import { describe,it,expect,vi } from 'vitest';
+import type { FlowBinding,FlowPort } from './types';
+const binding:FlowBinding={account:'0xa',chainId:1,escrow:'0xb',quoteId:'q',revision:1,termsHash:'t',recipient:'0xc',amount:'10',fee:'1',storage:'2',walletCreation:'0',feePayer:'customer',estimateExpiresAt:Date.now()+600000};
+let seq=0;
+function port():FlowPort{binding.quoteId='q'+(++seq);return {preflight:vi.fn(async()=>binding),authorize:vi.fn(async()=>{}),submit:vi.fn(async()=> '0xhash'),confirm:vi.fn(async()=> 'finalized' as const),receipt:vi.fn(async()=>{})};}
+describe('goal flow safety',()=>{
+ it('separates different contract actions on the same quote',async()=>{const p=port();const first={...binding,actionId:'dispute:0x123'};p.preflight=vi.fn(async()=>first);await executeFlow(reviewFlow(createFlow('refund',first)),p,()=>{});const second={...first,actionId:'claim:0x456'};p.preflight=vi.fn(async()=>second);await executeFlow(reviewFlow(createFlow('refund',second)),p,()=>{});expect(p.submit).toHaveBeenCalledTimes(2);});
+ it('allows a fresh review after explicit wallet rejection code4001',async()=>{const p=port();p.submit=vi.fn(async()=>{throw {code:4001,message:'User rejected'};});const s=await executeFlow(reviewFlow(createFlow('payment',binding)),p,()=>{});expect(s.submissionUncertain).toBe(false);p.submit=vi.fn(async()=> '0xretry');const done=await executeFlow(reviewFlow(s),p,()=>{});expect(done.finalized).toBe(true);});
+
+ it('does not resend uncertain submission even without a hash',async()=>{const p=port();p.submit=vi.fn(async()=>{throw Error('timeout')});const s=await executeFlow(reviewFlow(createFlow('payment',binding)),p,()=>{});expect(s.submissionUncertain).toBe(true);expect(()=>reviewFlow(s)).toThrow();await expect(executeFlow(s,p,()=>{})).rejects.toThrow('Reconcile');expect(p.submit).toHaveBeenCalledTimes(1);});
+ it('does not submit after identity or fee changes',async()=>{const p=port();p.preflight=vi.fn(async()=>({...binding,fee:'9'}));await expect(executeFlow(reviewFlow(createFlow('payment',binding)),p,()=>{})).rejects.toThrow('Review');expect(p.authorize).not.toHaveBeenCalled();});
+ it('keeps finalized payment successful if receipt fails',async()=>{const p=port();p.receipt=vi.fn(async()=>{throw Error('indexer slow')});const s=await executeFlow(reviewFlow(createFlow('payment',binding)),p,()=>{});expect(s.finalized).toBe(true);expect(s.receiptPending).toBe(true);await executeFlow(s,p,()=>{});expect(p.submit).toHaveBeenCalledTimes(1);});
+ it('journals attempt before send and blocks stale state instance replay',async()=>{const p=port();let persisted=false;p.persistAttempt=vi.fn(async()=>{persisted=true});p.submit=vi.fn(async()=>{expect(persisted).toBe(true);throw Error('timeout')});const original=reviewFlow(createFlow('payment',{...binding,quoteId:'stale'}));p.preflight=vi.fn(async()=>original.binding);await executeFlow(original,p,()=>{});await expect(executeFlow(original,p,()=>{})).rejects.toThrow('Reconcile');});
+});

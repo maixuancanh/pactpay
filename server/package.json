@@ -1,0 +1,36 @@
+{
+  "name": "pactpay-commerce-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx app.ts",
+    "dev:local": "node --env-file-if-exists=.env --import tsx local.ts",
+    "build": "tsc --noEmit",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
+    "migrate": "tsx db/migrate-cli.ts",
+    "test:postgres": "tsx --test tests/postgres.integration.ts",
+    "db:backup": "tsx db/backup-cli.ts backup",
+    "db:restore": "tsx db/backup-cli.ts restore"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.14",
+    "@polkadot/api": "17.0.2",
+    "@privy-io/node": "0.37.0",
+    "jose": "6.2.15",
+    "pg": "8.23.1",
+    "sharp": "0.35.5",
+    "viem": "2.57.14",
+    "@polkadot/keyring": "14.0.3",
+    "@polkadot/util-crypto": "14.0.3",
+    "@polkadot/util": "14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@types/pg": "8.15.6",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "ws": "8.21.0"
+  }
+}

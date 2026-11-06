@@ -1,0 +1,19 @@
+{
+  "bookingId": "0x1a203c2bcabc9609034e5831b90b918c325586f8057870c525614199776240ab",
+  "contract": "0x1e6b99aab17174409fcacb591542aeba6d6113d6",
+  "recipient": "5GuY9cRdFH7Zf24ZqQdx2tnq7vptwBC8mvW8UTn2EPrvcQDS",
+  "finalizedBlock": 316587,
+  "balanceDUSD": "0.01",
+  "escrowDUSD": "0",
+  "creditDUSD": "0",
+  "liabilityDUSD": "0",
+  "matches": [
+    {
+      "block": 316585,
+      "blockHash": "0x46b93d55f5281ae19655561a3b543e2d5bb9a96ab6468683e645bfff732d474c",
+      "hash": "0x62ff59b96bdea4ff87b068fe3a32f8abb80e72d0d456cdb78980a138b936a367",
+      "success": true,
+      "feeTPOT": "0.01451156386848"
+    }
+  ]
+}

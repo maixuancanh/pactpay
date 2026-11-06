@@ -1,0 +1,3 @@
+export type ProtectedMemberState = { paid: bigint; settled: boolean; disputed: boolean; buyerCredit: bigint; merchantCredit: bigint; complaintDeadline: number; resolutionDeadline: number };
+/** V2 only. Credit existence is separate from a verified token transfer to a wallet. */
+export function protectedMemberAction(s:ProtectedMemberState,now:number): 'unfunded'|'dispute-available'|'held'|'mutual-resolution'|'default-refund'|'merchant-settlement'|'credit-available'|'settled' {if(s.paid===0n)return 'unfunded';if(s.settled)return s.buyerCredit>0n||s.merchantCredit>0n?'credit-available':'settled';if(s.disputed)return now>=s.resolutionDeadline?'default-refund':'mutual-resolution';return now<s.complaintDeadline?'dispute-available':'merchant-settlement';}

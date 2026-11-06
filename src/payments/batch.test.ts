@@ -1,0 +1,6 @@
+import { describe,it,expect } from 'vitest';
+import {decodeFunctionData,parseAbi} from 'viem';
+import {prepareApproveContributeBatch} from './batch';
+const account='0x1111111111111111111111111111111111111111' as const,token='0x2222222222222222222222222222222222222222' as const,escrow='0x3333333333333333333333333333333333333333' as const;
+const args={capability:{verified:true,evidence:'LOCAL ONLY',chainId:1,account,primitive:'native-batch-all' as const,atomic:true,preservesOrigin:true,oneAuthorization:true},chainId:1,account,member:account,token,escrow,quoteId:('0x'+'11'.repeat(32)) as `0x${string}`,termsHash:('0x'+'22'.repeat(32)) as `0x${string}`,share:23n,deadline:100,now:10,storageCovered:true};
+describe('batch policy',()=>{it('limits approval to exact share and quoted escrow',()=>{const calls=prepareApproveContributeBatch(args);expect(decodeFunctionData({abi:parseAbi(['function approve(address,uint256) returns(bool)']),data:calls[0].data}).args).toEqual([escrow,23n]);expect(calls[1].to).toBe(escrow);});it('fails closed for missing proof, wrong origin, expiry or storage',()=>{for(const patch of [{capability:{...args.capability,atomic:false}},{capability:{...args.capability,preservesOrigin:false}},{member:token},{chainId:2},{now:100},{storageCovered:false}])expect(()=>prepareApproveContributeBatch({...args,...patch})).toThrow();});});

@@ -1,0 +1,2 @@
+import type { FlowState } from './types';
+export function FlowResult({state,receiptUrl}:{state:FlowState;receiptUrl?:string}) { if(!state.finalized) return null; return <section aria-live="polite"><h2>Confirmed by the network</h2><p>{state.receiptPending?'Your payment succeeded. The receipt is still updating.':'Your receipt is ready.'}</p>{receiptUrl&&<a href={receiptUrl}>View receipt</a>}</section>; }

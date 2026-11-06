@@ -1,0 +1,6 @@
+import {describe,it,expect} from 'vitest';
+import {withPaymentEvidence,type IndexedEvidence} from './evidence';
+import type {Room} from './types';
+const room={id:'r',revision:1,members:[{userId:'u',nickname:'A',accountAddress:'0xa',share:'10',acceptedRevision:1}],quote:{chainId:1,escrow:'0xe',quoteId:'0xq'}} as Room;
+const event={chain_id:1,escrow:'0xe',quote_id:'0xq',kind:'Contributed',payload:{member:'0xa',amount:'10'},source:'evm-rpc-finalized',coverage:{finality:'finalized'},block_number:'1',block_hash:'0xb'} as IndexedEvidence;
+describe('group payment evidence',()=>{it('requires finalized source and correct quote',()=>{expect(withPaymentEvidence(room,[{...event,source:'local'}]).members[0].paymentFinalized).toBe(false);expect(withPaymentEvidence(room,[{...event,quote_id:'0xother'}]).members[0].paymentFinalized).toBe(false);expect(withPaymentEvidence(room,[event]).members[0].paymentFinalized).toBe(true);});it('treats withdrawal as a completed return, not claimable refund',()=>{const withdrawn={...event,kind:'Withdrawn'};expect(withPaymentEvidence(room,[event,withdrawn]).members[0].refundAvailable).toBe(false);expect(withPaymentEvidence(room,[event,withdrawn]).members[0].refundReceived).toBe(false);expect(withPaymentEvidence(room,[event,withdrawn]).members[0].paymentFinalized).toBe(false);});});
